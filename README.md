@@ -1,6 +1,10 @@
 # Study Session Manager (PyQt5 Tray)
 
-A clean, modular KDE-friendly system tray app to manage study sessions with start, pause, continue, and end actions. Tracks pauses with reasons, logs events locally to SQLite, and optionally syncs to an N8N backend.
+> **Purpose**: Personal study data collection for AI-driven productivity optimization  
+> **Status**: Prototype — Functional for data collection, not production-ready  
+> A KDE-friendly system tray app to track study sessions locally and export data to N8N for processing. Built to gather rich session metadata (pauses, reasons, timestamps, notes) as training data for a future personal AI that maximizes productivity and performance.
+
+Collect study session data with pause tracking, mood logging, and focus areas. All data stored locally in SQLite + CSV, with manual sync to N8N webhooks for ingestion into your ML pipeline.
 
 ## Project Structure
 
@@ -52,31 +56,69 @@ You should see a tray icon; right-click (and left-click) opens the menu.
 
 ## Features
 
+**Data Collection:**
 - Start session: begins tracking focus time
-- Pause session: capture a reason; multiple pauses per session supported
+- Pause session: capture pause reason (e.g., "distraction", "bio break")
 - Continue session: resume from pause
-- End session: logs session summary (active time, pause count, total pause)
-- Log thoughts, mood, and focus area during the session
+- End session: log session summary (active time, pause count, total pause duration, optional notes)
+- Log thoughts, mood (5-point scale), and focus area during the session
 - View summary stats from local SQLite database
-- Desktop notifications for actions
+
+**Storage & Export:**
+- All data stays local by default (SQLite + CSV)
+- Manual sync to N8N via "🔄 Sync Now" button for centralized processing
+- Rich metadata: timestamps, durations, pause reasons, mood, focus area, notes
 
 ## Storage
 
-- SQLite DB: `~/.local/share/study-session/sessions.db`
-- Tables: `sessions`, `pauses`, `session_events`
-- Timestamps stored in ISO-8601 strings for Python 3.12 compatibility
+- **SQLite DB**: `~/.local/share/study-session/sessions.db`
+  - Tables: `sessions`, `pauses`, `session_events`
+  - Timestamps stored as ISO-8601 strings for Python 3.12+ compatibility
+- **CSV Log**: `~/.local/share/study-session/sessions.csv`
+  - Appended on each session end for easy analysis and backup
+  - Columns: `session_id`, `started_at`, `ended_at`, `total_duration_seconds`, `active_time_seconds`, `pause_count`, `total_pause_duration_seconds`, `notes`
 
-## N8N Local-Storage Workflow Sync
+## N8N Manual Sync (via "Sync Now" button)
 
-- When a session ends, the app attempts to sync any unsynced sessions/pauses to N8N.
-- Endpoints used:
-  - `POST /session-log`: one call per session (final summary)
-  - `POST /session-pauses`: one call per pause belonging to that session
-- Timestamp format: ISO-8601 with seconds zeroed (e.g. `2025-12-16T11:26:00`).
-- Deletion policy:
-  - Successfully posted pauses are deleted from local DB.
-  - The session row is deleted only if it and all its pauses were posted successfully.
-- If `N8N_BASE_URL` is unset, sync is skipped and data remains local.
+**Sync is triggered manually by clicking "🔄 Sync Now" in the tray menu, not automatically.**
+
+Use this to push collected session data to N8N for processing, storage, or ML training pipelines.
+
+- For each unsynced session in the local DB:
+  - `POST /session-log`: one call per session (final summary with timestamps, durations, notes)
+  - For each pause in that session:
+    - `POST /session-pauses`: one call per pause (reason, started_at, ended_at, duration)
+- Timestamp format: ISO-8601 with seconds zeroed (e.g. `2025-12-16T11:26:00`) for cleaner data
+- **Robust error handling**: All endpoints are attempted; failures do not stop the sync
+- **Deletion policy**:
+  - Pauses: deleted from DB only if they posted successfully (2XX status)
+  - Sessions: deleted from DB only if the session posted AND all its pauses posted
+  - Failed/4XX entries remain in the DB for retry on next "Sync Now"
+- Console logging: Full trace of DB reads, payload construction, sending, and deletions for debugging
+- If `N8N_BASE_URL` is unset, sync button is available but will warn that endpoints are not configured
+
+## Known Limitations & TODO
+
+**Current Limitations (acceptable for data collection phase):**
+- No authentication: N8N webhooks are called without auth headers or tokens
+- No request signing: Payloads are not signed or verified
+- No user management: All sessions logged as `tray_standalone` user (local collection only)
+- No rate limiting: Sync can hammer the N8N endpoint if many sessions exist
+- No retry/backoff: Failed requests remain locally but are not automatically retried
+- No offline queue: If N8N is down, data stays local; manual sync will retry all next time
+- Desktop integration: Only tested on KDE/Plasma; may need adjustments for GNOME, etc.
+- No keyboard shortcuts: No global hotkeys for session control
+
+**Future Enhancements (as AI training progresses):**
+- Add Bearer token or API key authentication to `.env` and `_post_json()`
+- Request signing for data integrity verification
+- Automatic daily/weekly sync scheduling
+- Web dashboard to visualize collected data and trends
+- Integration with calendar/focus time blocking
+- Global hotkeys for quick session control
+- Support for multiple study contexts or projects
+- Mood-to-performance correlation analysis
+- Export to CSV/JSON for external analysis
 
 ## Contributing / Extending
 
@@ -86,7 +128,9 @@ You should see a tray icon; right-click (and left-click) opens the menu.
   - Persistence in `db.py`
   - Integrations in `api.py`
 - Prefer non-blocking operations; use `SessionAPIManager.run_async(...)` for async requests.
-- For icons, use theme-aware icons via `QIcon.fromTheme("accessories-text-editor")` or provide a local fallback.
+- For icons, use theme-aware icons via `QIcon.fromTheme("clock")` with fallbacks.
+- **To add authentication**: Update `_post_json()` in `api.py` to include auth headers or Bearer tokens from `.env`
+- Consider adding `requests` library for simpler HTTP handling if complexity grows.
 
 ## Troubleshooting
 
