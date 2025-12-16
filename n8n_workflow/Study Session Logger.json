@@ -1,0 +1,446 @@
+{
+  "name": "Study Session Logger",
+  "nodes": [
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "value": "iizv95Ret7F1KAuV",
+          "mode": "list",
+          "cachedResultName": "Sessions",
+          "cachedResultUrl": "/projects/zk7Gz5vxTNNv1Noc/datatables/iizv95Ret7F1KAuV"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "startedAt": "={{ $json.body.started_at }}",
+            "endedAt": "={{ $json.body.ended_at }}",
+            "Session_ID": "={{ $json.body.session_id }}",
+            "Notes": "={{ $json.body.notes }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "startedAt",
+              "displayName": "startedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "endedAt",
+              "displayName": "endedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "tasksCompleted",
+              "displayName": "tasksCompleted",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Notes",
+              "displayName": "Notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Session_ID",
+              "displayName": "Session_ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        192,
+        1456
+      ],
+      "id": "d8ed9940-75ce-4acc-8640-1c44c03c3062",
+      "name": "Insert row"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "value": "iizv95Ret7F1KAuV",
+          "mode": "list",
+          "cachedResultName": "Sessions",
+          "cachedResultUrl": "/projects/zk7Gz5vxTNNv1Noc/datatables/iizv95Ret7F1KAuV"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "Session_ID",
+              "keyValue": "={{ $('Insert row').item.json.Session_ID }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "tasksCompleted": "={{ $json.concatenated_id }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "startedAt",
+              "displayName": "startedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "endedAt",
+              "displayName": "endedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "tasksCompleted",
+              "displayName": "tasksCompleted",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Notes",
+              "displayName": "Notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Session_ID",
+              "displayName": "Session_ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        864,
+        1456
+      ],
+      "id": "b60af17c-e906-4c2e-8fc2-7f75fbd6f315",
+      "name": "Update row(s)"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "1ddba441-6cbc-4030-978b-1d73df301bf0",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -32,
+        1456
+      ],
+      "id": "f7e80700-89b6-4ad9-bc3e-dd3893ade256",
+      "name": "Log Sessions",
+      "webhookId": "1ddba441-6cbc-4030-978b-1d73df301bf0"
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "value": "lt64ypoqNKo9JZbY",
+          "mode": "list",
+          "cachedResultName": "Session Pauses",
+          "cachedResultUrl": "/projects/zk7Gz5vxTNNv1Noc/datatables/lt64ypoqNKo9JZbY"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Session_ID": "={{ $json.body.session_id }}",
+            "PauseID": "={{ $json.body.id }}",
+            "Reason": "={{ $json.body.reason }}",
+            "StartedAt": "={{ $json.body.started_at }}",
+            "EndedAt": "={{ $json.body.ended_at }}",
+            "Duration": "={{ $json.body.duration_seconds }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Reason",
+              "displayName": "Reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "PauseID",
+              "displayName": "PauseID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "EndedAt",
+              "displayName": "EndedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "StartedAt",
+              "displayName": "StartedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Duration",
+              "displayName": "Duration",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Session_ID",
+              "displayName": "Session_ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        192,
+        1680
+      ],
+      "id": "f13e377f-1346-4767-b910-096867d195b6",
+      "name": "Insert row1"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "688bfa7c-4484-4037-b932-0f31127cc43a",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -32,
+        1680
+      ],
+      "id": "db8dbcff-7974-4738-9eb8-5c3d19a4ccd3",
+      "name": "Log Pauses",
+      "webhookId": "688bfa7c-4484-4037-b932-0f31127cc43a"
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "getAll",
+        "databaseId": {
+          "__rl": true,
+          "value": "2bf6198c-07e9-8012-ba5c-fa62f0c741a8",
+          "mode": "list",
+          "cachedResultName": "Tasks ",
+          "cachedResultUrl": "https://www.notion.so/2bf6198c07e98012ba5cfa62f0c741a8"
+        },
+        "returnAll": true,
+        "filterType": "manual",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "key": "Completed DateTime|date",
+              "condition": "before",
+              "date": "={{ $json.endedAt }}"
+            },
+            {
+              "key": "Completed DateTime|date",
+              "condition": "after",
+              "date": "={{ $json.startedAt }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        416,
+        1456
+      ],
+      "id": "2b7d5181-705c-4b5b-a745-555c5e5cbfb9",
+      "name": "Pull Completed Tasks",
+      "credentials": {
+        "notionApi": {
+          "id": "8p4lfknX6jZrPqEQ",
+          "name": "Class Notion"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fieldsToSummarize": {
+          "values": [
+            {
+              "aggregation": "concatenate",
+              "field": "id",
+              "separateBy": ", "
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.summarize",
+      "typeVersion": 1.1,
+      "position": [
+        640,
+        1456
+      ],
+      "id": "86818165-6d78-468f-9257-1a180be66624",
+      "name": "Concatenate"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Insert row": {
+      "main": [
+        [
+          {
+            "node": "Pull Completed Tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Sessions": {
+      "main": [
+        [
+          {
+            "node": "Insert row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Pauses": {
+      "main": [
+        [
+          {
+            "node": "Insert row1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pull Completed Tasks": {
+      "main": [
+        [
+          {
+            "node": "Concatenate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Concatenate": {
+      "main": [
+        [
+          {
+            "node": "Update row(s)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/London",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "7780f770-2a09-4e63-9358-e2c09c9cf9f9",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "558d88703fb65b2d0e44613bc35916258b0f0bf983c5d4730c00c424b77ca36a"
+  },
+  "id": "4bll3HOhtvmBCeP8",
+  "tags": []
+}
