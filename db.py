@@ -1,100 +1,43 @@
 #!/usr/bin/env python3
-import sqlite3
-import json
 import csv
 from pathlib import Path
-from datetime import datetime
 from typing import Optional
 
 from models import StudySession
 
-class SessionDatabase:
-    def __init__(self, db_path: Optional[Path] = None):
-        if db_path is None:
-            db_path = Path.home() / '.local/share/study-session' / 'sessions.db'
-        self.db_path = db_path
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self.init_db()
-    
-    def init_db(self):
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS sessions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id TEXT UNIQUE,
-                started_at TIMESTAMP,
-                ended_at TIMESTAMP,
-                total_duration_seconds INTEGER,
-                pause_count INTEGER DEFAULT 0,
-                total_pause_duration_seconds INTEGER DEFAULT 0,
-                notes TEXT,
-                synced_to_n8n BOOLEAN DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS pauses (
-                id TEXT PRIMARY KEY,
-                session_id TEXT,
-                reason TEXT,
-                started_at TIMESTAMP,
-                ended_at TIMESTAMP,
-                duration_seconds INTEGER,
-                synced_to_n8n BOOLEAN DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY(session_id) REFERENCES sessions(session_id)
-            )
-        ''')
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS session_events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id TEXT,
-                event_type TEXT,
-                event_data TEXT,
-                timestamp TIMESTAMP,
-                synced_to_n8n BOOLEAN DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (session_id) REFERENCES sessions(session_id)
-            )
-        ''')
-        # Ensure columns exist on older DBs (simple migrations)
-        try:
-            # sessions table
-            cursor.execute('PRAGMA table_info(sessions)')
-            session_cols = {row[1] for row in cursor.fetchall()}
-            def add_col_if_missing(table, col_sql):
-                cursor.execute(f'ALTER TABLE {table} ADD COLUMN {col_sql}')
-            if 'pause_count' not in session_cols:
-                add_col_if_missing('sessions', 'pause_count INTEGER DEFAULT 0')
-            if 'total_pause_duration_seconds' not in session_cols:
-                add_col_if_missing('sessions', 'total_pause_duration_seconds INTEGER DEFAULT 0')
-            if 'notes' not in session_cols:
-                add_col_if_missing('sessions', 'notes TEXT')
-            if 'synced_to_n8n' not in session_cols:
-                add_col_if_missing('sessions', 'synced_to_n8n BOOLEAN DEFAULT 0')
-            if 'created_at' not in session_cols:
-                add_col_if_missing('sessions', 'created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
 
-            # pauses table
-            cursor.execute('PRAGMA table_info(pauses)')
-            pause_cols = {row[1] for row in cursor.fetchall()}
-            if 'reason' not in pause_cols:
-                add_col_if_missing('pauses', 'reason TEXT')
-            if 'synced_to_n8n' not in pause_cols:
-                add_col_if_missing('pauses', 'synced_to_n8n BOOLEAN DEFAULT 0')
-            if 'created_at' not in pause_cols:
-                add_col_if_missing('pauses', 'created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
-        except sqlite3.OperationalError:
-            # Swallow errors if columns already added in concurrent runs
-            pass
-        conn.commit()
-        conn.close()
-    
+class SessionDatabase:
+    """CSV-based session storage. All data persisted to sessions.csv and pauses.csv."""
+
+    def __init__(self, csv_path: Optional[Path] = None):
+        if csv_path is None:
+            csv_path = Path.home() / '.local/share/study-session' / 'sessions.csv'
+        self.csv_path = csv_path
+        self.csv_path.parent.mkdir(parents=True, exist_ok=True)
+        self.pauses_csv = self.csv_path.parent / 'pauses.csv'
+        self.ensure_csv_headers()
+
+    def ensure_csv_headers(self):
+        """Ensure CSV files have headers if they don't exist."""
+        if not self.csv_path.exists() or self.csv_path.stat().st_size == 0:
+            with self.csv_path.open(mode='w', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=[
+                    'session_id', 'started_at', 'ended_at', 'total_duration_seconds',
+                    'active_time_seconds', 'pause_count', 'total_pause_duration_seconds', 'notes'
+                ])
+                writer.writeheader()
+
+        if not self.pauses_csv.exists() or self.pauses_csv.stat().st_size == 0:
+            with self.pauses_csv.open(mode='w', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=[
+                    'id', 'session_id', 'reason', 'started_at', 'ended_at', 'duration_seconds'
+                ])
+                writer.writeheader()
+
     def save_session(self, session: StudySession, notes: str = ""):
+        """Save a session to CSV (sessions.csv) and log its pauses (pauses.csv)."""
         summary = session.end()
         if not summary:
-            # If already ended, reconstruct a minimal summary for persistence
             if session.start_time and session.end_time and not session.is_running:
                 total_duration = int((session.end_time - session.start_time).total_seconds())
                 total_pause = session.pause_manager.get_session_total_pause_time(session.id)
@@ -109,117 +52,111 @@ class SessionDatabase:
                 }
             else:
                 return
-        conn = sqlite3.connect(self.db_path)
-        conn.execute('''
-            INSERT OR REPLACE INTO sessions 
-            (session_id, started_at, ended_at, total_duration_seconds, pause_count, total_pause_duration_seconds, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            summary['session_id'],
-            session.start_time.isoformat(),
-            session.end_time.isoformat(),
-            summary['total_duration'],
-            summary['pause_count'],
-            summary['total_pause'],
-            notes
-        ))
-        for pause in summary['pauses']:
-            conn.execute('''
-                INSERT OR REPLACE INTO pauses 
-                (id, session_id, reason, started_at, ended_at, duration_seconds)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (
-                pause.id, pause.session_id, pause.reason,
-                pause.started_at.isoformat() if pause.started_at else None,
-                pause.ended_at.isoformat() if pause.ended_at else None,
-                pause.duration_seconds
-            ))
-        conn.commit()
-        conn.close()
 
-    def append_session_csv(self, summary: dict, notes: str = ""):
-        """Append a session row to CSV at the same location as the DB."""
-        out_path = self.db_path.parent / 'sessions.csv'
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        headers = [
-            'session_id', 'started_at', 'ended_at', 'total_duration_seconds',
-            'active_time_seconds', 'pause_count', 'total_pause_duration_seconds', 'notes'
-        ]
-        row = {
+        # Append session to sessions.csv
+        session_row = {
             'session_id': summary.get('session_id'),
-            'started_at': summary.get('started_at') or '',
-            'ended_at': summary.get('ended_at') or '',
+            'started_at': session.start_time.isoformat() if session.start_time else '',
+            'ended_at': session.end_time.isoformat() if session.end_time else '',
             'total_duration_seconds': summary.get('total_duration', 0),
             'active_time_seconds': summary.get('active_time', 0),
             'pause_count': summary.get('pause_count', 0),
             'total_pause_duration_seconds': summary.get('total_pause', 0),
             'notes': notes or ''
         }
-        # If started/ended not provided in summary, derive from session-events is non-trivial.
-        # Expect caller to pass them when available.
-        write_header = not out_path.exists() or out_path.stat().st_size == 0
-        with out_path.open(mode='a', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=headers)
-            if write_header:
-                writer.writeheader()
-            writer.writerow(row)
-    
-    def log_event(self, session_id, event_type, event_data):
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO session_events (session_id, event_type, event_data, timestamp)
-            VALUES (?, ?, ?, ?)
-        ''', (session_id, event_type, json.dumps(event_data), datetime.now()))
-        conn.commit()
-        conn.close()
+        with self.csv_path.open(mode='a', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=[
+                'session_id', 'started_at', 'ended_at', 'total_duration_seconds',
+                'active_time_seconds', 'pause_count', 'total_pause_duration_seconds', 'notes'
+            ])
+            writer.writerow(session_row)
 
-    # --- Sync helpers for n8n local-storage workflow ---
+        # Append pauses to pauses.csv
+        for pause in summary.get('pauses', []):
+            pause_row = {
+                'id': pause.id,
+                'session_id': pause.session_id,
+                'reason': pause.reason or '',
+                'started_at': pause.started_at.isoformat() if pause.started_at else '',
+                'ended_at': pause.ended_at.isoformat() if pause.ended_at else '',
+                'duration_seconds': pause.duration_seconds or 0
+            }
+            with self.pauses_csv.open(mode='a', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=[
+                    'id', 'session_id', 'reason', 'started_at', 'ended_at', 'duration_seconds'
+                ])
+                writer.writerow(pause_row)
+
+    def log_event(self, session_id, event_type, event_data):
+        """Log an event (e.g., pause, mood, thoughts). Events stored inline in session notes."""
+        pass  # Events logged via save_session; can extend with events.csv if needed
+
     def fetch_unsynced_sessions(self):
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT session_id, started_at, ended_at, total_duration_seconds, pause_count,
-                   total_pause_duration_seconds, notes
-            FROM sessions
-            WHERE IFNULL(synced_to_n8n, 0) = 0 AND ended_at IS NOT NULL
-        ''')
-        rows = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-        return rows
+        """Read all sessions from CSV. Since CSV has no sync flag, return all."""
+        sessions = []
+        if not self.csv_path.exists():
+            return sessions
+        with self.csv_path.open(mode='r', newline='') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if row:
+                    sessions.append(dict(row))
+        return sessions
 
     def fetch_unsynced_pauses_for_session(self, session_id: str):
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT id, session_id, reason, started_at, ended_at, duration_seconds
-            FROM pauses
-            WHERE session_id = ? AND IFNULL(synced_to_n8n, 0) = 0
-        ''', (session_id,))
-        rows = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-        return rows
+        """Read all pauses for a given session from pauses.csv."""
+        pauses = []
+        if not self.pauses_csv.exists():
+            return pauses
+        with self.pauses_csv.open(mode='r', newline='') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if row and row.get('session_id') == session_id:
+                    pauses.append(dict(row))
+        return pauses
 
     def delete_pauses_by_ids(self, pause_ids):
-        if not pause_ids:
+        """Remove pause rows from pauses.csv by ID."""
+        if not pause_ids or not self.pauses_csv.exists():
             return 0
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.executemany('DELETE FROM pauses WHERE id = ?', [(pid,) for pid in pause_ids])
-        deleted = cursor.rowcount
-        conn.commit()
-        conn.close()
+        pause_ids_set = set(pause_ids)
+        rows = []
+        deleted = 0
+        with self.pauses_csv.open(mode='r', newline='') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if row.get('id') not in pause_ids_set:
+                    rows.append(row)
+                else:
+                    deleted += 1
+
+        with self.pauses_csv.open(mode='w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=[
+                'id', 'session_id', 'reason', 'started_at', 'ended_at', 'duration_seconds'
+            ])
+            writer.writeheader()
+            writer.writerows(rows)
         return deleted
 
     def delete_session_by_session_id(self, session_id: str):
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        # Ensure child pauses are removed if any remain
-        cursor.execute('DELETE FROM pauses WHERE session_id = ?', (session_id,))
-        cursor.execute('DELETE FROM sessions WHERE session_id = ?', (session_id,))
-        deleted = cursor.rowcount
-        conn.commit()
-        conn.close()
+        """Remove a session row from sessions.csv by session_id."""
+        if not self.csv_path.exists():
+            return 0
+        rows = []
+        deleted = 0
+        with self.csv_path.open(mode='r', newline='') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if row.get('session_id') != session_id:
+                    rows.append(row)
+                else:
+                    deleted += 1
+
+        with self.csv_path.open(mode='w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=[
+                'session_id', 'started_at', 'ended_at', 'total_duration_seconds',
+                'active_time_seconds', 'pause_count', 'total_pause_duration_seconds', 'notes'
+            ])
+            writer.writeheader()
+            writer.writerows(rows)
         return deleted

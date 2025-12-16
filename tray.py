@@ -112,9 +112,8 @@ class StudySessionTray(QSystemTrayIcon):
                 # Enrich summary with timestamps for CSV
                 summary['started_at'] = self.session.start_time.isoformat() if self.session.start_time else None
                 summary['ended_at'] = self.session.end_time.isoformat() if self.session.end_time else None
+                # Save to CSV (sessions.csv and pauses.csv)
                 self.api.db.save_session(self.session, notes)
-                # Also append to CSV log
-                self.api.db.append_session_csv(summary, notes)
                 params = { 'notes': notes, 'active_time': summary['active_time'], 'total_pause': summary['total_pause'], 'pause_count': summary['pause_count'] }
                 # Log end locally only; syncing happens via manual "Sync Now"
                 self.api.db.log_event(self.session.id, 'end', params)

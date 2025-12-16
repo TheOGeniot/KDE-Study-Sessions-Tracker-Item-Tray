@@ -71,12 +71,14 @@ You should see a tray icon; right-click (and left-click) opens the menu.
 
 ## Storage
 
-- **SQLite DB**: `~/.local/share/study-session/sessions.db`
-  - Tables: `sessions`, `pauses`, `session_events`
-  - Timestamps stored as ISO-8601 strings for Python 3.12+ compatibility
-- **CSV Log**: `~/.local/share/study-session/sessions.csv`
-  - Appended on each session end for easy analysis and backup
+All data stored in CSV format in `~/.local/share/study-session/`:
+
+- **sessions.csv**: One row per ended session
   - Columns: `session_id`, `started_at`, `ended_at`, `total_duration_seconds`, `active_time_seconds`, `pause_count`, `total_pause_duration_seconds`, `notes`
+- **pauses.csv**: One row per pause within a session
+  - Columns: `id`, `session_id`, `reason`, `started_at`, `ended_at`, `duration_seconds`
+
+Simple, portable, and directly feedable into your ML pipeline.
 
 ## N8N Manual Sync (via "Sync Now" button)
 
