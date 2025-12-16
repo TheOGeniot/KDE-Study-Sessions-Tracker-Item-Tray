@@ -64,7 +64,7 @@ def main():
     print("\n🚀 Study Session Manager started")
     print("📍 Local storage: ~/.local/share/study-session/sessions.db")
     print("💡 Right-click the tray icon to access menu")
-    print("🔧 Features: Multiple pauses per session with reasons, mood tracking, N8N sync\n")
+    print("🔧 Features: Multiple pauses per session with reasons and N8N sync\n")
 
     sys.exit(app.exec_())
 
