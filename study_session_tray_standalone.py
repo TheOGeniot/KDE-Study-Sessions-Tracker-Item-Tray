@@ -11,6 +11,19 @@ Project structure:
 - tray.py: StudySessionTray (UI and actions)
 - study_session_tray_standalone.py: Entrypoint (this file)
 """
+#!/usr/bin/env python3
+"""
+Study Session Manager — Main Entrypoint
+Clean, modular app using PyQt5 system tray.
+
+Project structure:
+- models.py: Pause, PauseManager, StudySession
+- db.py: SessionDatabase
+- api.py: SessionAPIManager
+- dialogs.py: InputDialog, SelectDialog
+- tray.py: StudySessionTray (UI and actions)
+- study_session_tray_standalone.py: Entrypoint (this file)
+"""
 
 import sys
 import os
