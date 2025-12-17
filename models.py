@@ -37,7 +37,6 @@ class PauseManager:
     
     def start_pause(self, session_id: str, reason: str = "") -> Pause:
         if session_id in self.active_pauses:
-            print(f"⚠️ Pause already active for {session_id}")
             return None
         pause = Pause.create(session_id, reason)
         self.active_pauses[session_id] = pause
@@ -45,7 +44,6 @@ class PauseManager:
     
     def end_pause(self, session_id: str) -> int:
         if session_id not in self.active_pauses:
-            print(f"❌ No active pause for {session_id}")
             return 0
         pause = self.active_pauses.pop(session_id)
         duration = pause.end()

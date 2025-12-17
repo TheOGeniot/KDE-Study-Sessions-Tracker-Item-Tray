@@ -7,6 +7,9 @@ import aiohttp
 from PyQt5.QtCore import QObject, pyqtSignal
 
 from db import SessionDatabase
+from logger import setup_logger
+
+logger = setup_logger('api')
 
 
 class SessionAPIManager(QObject):
@@ -31,16 +34,15 @@ class SessionAPIManager(QObject):
 
         self.session_log_endpoint = build_url(log_ep)
         self.session_pauses_endpoint = build_url(pauses_ep)
-        # Print composed endpoints for visibility
-        print("[API] N8N base:", self.base_url or "(unset)")
-        print("[API] session-log endpoint:", self.session_log_endpoint)
-        print("[API] session-pauses endpoint:", self.session_pauses_endpoint)
+        
+        # Log configured endpoints
+        logger.info(f"N8N session-log endpoint: {self.session_log_endpoint or '(not configured)'}")
+        logger.info(f"N8N session-pauses endpoint: {self.session_pauses_endpoint or '(not configured)'}")
 
         self.db = SessionDatabase()
 
     async def make_request(self, subcommand, params=None, session_id=None):
         # Placeholder: local event log + status only. No network.
-        print(f"[API] make_request -> subcommand={subcommand}, session_id={session_id}, params={params or {}}")
         if session_id:
             self.db.log_event(session_id, subcommand, params or {})
         self.status_changed.emit(f"✅ {subcommand.capitalize()} (local)")
@@ -58,30 +60,22 @@ class SessionAPIManager(QObject):
     def _format_ts_for_api(ts: str) -> str:
         try:
             dt = datetime.fromisoformat(ts)
-            original = dt.isoformat()
             dt = dt.replace(second=0, microsecond=0)
-            formatted = dt.isoformat()
-            if formatted != original:
-                print(f"[API] format_ts: {original} -> {formatted}")
-            return formatted
+            return dt.isoformat()
         except Exception:
             return ts
 
     async def sync_unsynced(self):
         # Prepare and send payloads to configured endpoints; only manual trigger uses this.
-        print("[API] Sync: reading DB for unsynced sessions...")
+        logger.info("Reading database for unsynced sessions...")
         sessions = self.db.fetch_unsynced_sessions()
         if not sessions:
             self.status_changed.emit("✅ Nothing to sync")
             return True
 
+        logger.info(f"Found {len(sessions)} unsynced session(s)")
         prepared = []
-        print(f"[API] Sync: found {len(sessions)} session(s)")
         for s in sessions:
-            try:
-                print("[API] Session row:", json.dumps(s, indent=2))
-            except Exception:
-                print("[API] Session row:", s)
             session_payload = {
                 'session_id': s['session_id'],
                 'started_at': self._format_ts_for_api(s['started_at']) if s.get('started_at') else None,
@@ -105,17 +99,7 @@ class SessionAPIManager(QObject):
                 }
                 for p in pauses
             ]
-            print(f"[API] Build payload: session-log -> {self.session_log_endpoint}")
-            try:
-                print(json.dumps(session_payload, indent=2))
-            except Exception:
-                print(session_payload)
-            print(f"[API] Build payload: session-pauses -> {len(pause_payloads)} pause(s) to {self.session_pauses_endpoint}")
-            if pause_payloads:
-                try:
-                    print(json.dumps(pause_payloads, indent=2))
-                except Exception:
-                    print(pause_payloads)
+            logger.debug(f"Session {s['session_id']}: {len(pause_payloads)} pause(s)")
             prepared.append({'session': session_payload, 'pauses': pause_payloads})
         # If endpoints are not configured, keep local only.
         if not (self.session_log_endpoint and self.session_pauses_endpoint):
@@ -127,35 +111,31 @@ class SessionAPIManager(QObject):
         all_ok = True
         for item in prepared:
             s = item['session']
-            print(f"[API] Sending session-log for session_id={s['session_id']}")
+            logger.info(f"Syncing session {s['session_id']}...")
             ok = await self._post_json(self.session_log_endpoint, s)
             if not ok:
                 all_ok = False
                 self.status_changed.emit(f"⚠️ session-log failed for {s['session_id']}")
-                print(f"[API] session-log FAILED for {s['session_id']}")
+                logger.warning(f"Session log sync failed for {s['session_id']}")
                 # Continue to attempt pause sends even if session-log failed
-            else:
-                print(f"[API] session-log OK for {s['session_id']}; will queue deletions after pauses")
             sent_pause_ids = []
             for p in item['pauses']:
-                print(f"[API] Sending session-pauses for pause_id={p['id']} (session {p['session_id']})")
                 pok = await self._post_json(self.session_pauses_endpoint, p)
                 if pok:
                     sent_pause_ids.append(p['id'])
-                    print(f"[API] session-pauses OK -> store pause id for delete: {p['id']}")
                 else:
                     all_ok = False
                     self.status_changed.emit(f"⚠️ session-pauses failed for pause {p['id']}")
-                    print(f"[API] session-pauses FAILED for pause {p['id']}")
+                    logger.warning(f"Pause sync failed for pause {p['id']}")
                     # Continue to next pause even on failure
             if sent_pause_ids:
-                print(f"[API] Deleting {len(sent_pause_ids)} synced pause(s): {sent_pause_ids}")
+                logger.debug(f"Deleting {len(sent_pause_ids)} synced pause(s)")
                 self.db.delete_pauses_by_ids(sent_pause_ids)
             if len(sent_pause_ids) == len(item['pauses']):
-                print(f"[API] All pauses synced; deleting session {s['session_id']}")
+                logger.info(f"All pauses synced for session {s['session_id']}, deleting from local storage")
                 self.db.delete_session_by_session_id(s['session_id'])
             else:
-                print(f"[API] Not all pauses synced; keeping session {s['session_id']} locally")
+                logger.info(f"Not all pauses synced for session {s['session_id']}, keeping locally")
 
         if all_ok:
             self.status_changed.emit("✅ Sync completed")
@@ -170,11 +150,14 @@ class SessionAPIManager(QObject):
             async with aiohttp.ClientSession() as session:
                 async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                     ok = 200 <= resp.status < 300
-                    print(f"[API] POST {url} -> status {resp.status}")
+                    if ok:
+                        logger.debug(f"POST {url} -> {resp.status}")
+                    else:
+                        logger.warning(f"POST {url} -> {resp.status}")
                     return ok
         except asyncio.TimeoutError:
-            print(f"[API] POST {url} -> timeout")
+            logger.error(f"POST {url} -> timeout")
             return False
         except Exception as e:
-            print(f"[API] POST {url} -> error: {e}")
+            logger.error(f"POST {url} -> error: {e}")
             return False

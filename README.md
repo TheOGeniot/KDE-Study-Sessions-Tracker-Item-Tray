@@ -70,10 +70,25 @@ You should see a tray icon; right-click (and left-click) opens the menu.
 - Manual sync to N8N via "🔄 Sync Now" button for centralized processing
 - Rich metadata: timestamps, durations, pause reasons, mood, focus area, notes, location, equipment
 
-## Storage
+## Data Location
 
-All data stored in CSV format in `~/.local/share/study-session/`:
+All data is stored locally in `~/.local/share/study-session/`:
 
+**To access your data:**
+```bash
+# View all your data files
+cd ~/.local/share/study-session/
+ls -lh
+
+# Quick peek at your sessions
+cat sessions.csv | column -t -s,
+
+# View logs
+ls -lh logs/
+tail -f logs/session_manager_$(date +%Y%m%d).log
+```
+
+**Files stored:**
 - **sessions.csv**: One row per ended session
   - Columns: `session_id`, `started_at`, `ended_at`, `total_duration_seconds`, `active_time_seconds`, `pause_count`, `total_pause_duration_seconds`, `notes`, `location`, `equipment`
 - **pauses.csv**: One row per pause within a session
@@ -81,6 +96,7 @@ All data stored in CSV format in `~/.local/share/study-session/`:
 - **location_catalog.csv**: Preset and user-added locations (defaults: home, class, transports)
 - **equipment_catalog.csv**: User-added equipment inventory (starts empty)
 - **profiles.csv**: Saved environment profiles (`name, location, equipment`)
+- **logs/**: Daily log files (`session_manager_YYYYMMDD.log`) with detailed operation traces
 
 Simple, portable, and directly feedable into your ML pipeline.
 

@@ -20,7 +20,9 @@ from dotenv import load_dotenv
 from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QWidget, QVBoxLayout, QPushButton, QLabel
 
 from tray import StudySessionTray
-import inspect
+from logger import setup_logger
+
+logger = setup_logger('main')
 
 
 def main():
@@ -33,7 +35,7 @@ def main():
         lock_file.write(str(os.getpid()))
         lock_file.flush()
     except Exception:
-        print("❗ Another Study Session Manager instance appears to be running. Exiting.")
+        logger.warning("Another Study Session Manager instance appears to be running. Exiting.")
         return 1
     load_dotenv(dotenv_path=Path(__file__).parent / '.env')
     app = QApplication(sys.argv)
@@ -42,12 +44,15 @@ def main():
     app.setQuitOnLastWindowClosed(False)
 
     n8n_url = os.getenv('N8N_BASE_URL')
-    print(f"✅ N8N configured: {n8n_url}") if n8n_url else print("⚠️  N8N_BASE_URL not set (using local-only mode)")
+    if n8n_url:
+        logger.info(f"N8N configured: {n8n_url}")
+    else:
+        logger.info("N8N_BASE_URL not set (using local-only mode)")
 
     # Ensure system tray is available
     tray = None
     if not QSystemTrayIcon.isSystemTrayAvailable():
-        print("❌ System tray not available on this desktop environment. Launching fallback window.")
+        logger.warning("System tray not available on this desktop environment. Launching fallback window.")
         # Fallback window to access the same menu actions
         tray = StudySessionTray(app)
         class FallbackWindow(QWidget):
@@ -73,21 +78,10 @@ def main():
         tray.show()
         tray.setVisible(True)
 
-    # Debug: list current tray menu actions to verify UI contents
-    try:
-        if tray and getattr(tray, 'menu', None):
-            labels = [a.text() for a in tray.menu.actions()]
-            print("🧭 Tray menu actions:", labels)
-            # Show source file of the tray class to ensure correct file is loaded
-            print("🗂  Tray class file:", inspect.getfile(StudySessionTray))
-    except Exception as e:
-        print("(debug) Could not enumerate tray actions:", e)
-
-    print("\n🚀 Study Session Manager started")
-    print("📍 Local storage (CSV): ~/.local/share/study-session/")
-    print("    - sessions.csv, pauses.csv, location_catalog.csv, equipment_catalog.csv, profiles.csv")
-    print("💡 Right-click the tray icon to access menu")
-    print("🔧 Features: Manual sync, environment profiles, and CSV-only storage\n")
+    logger.info("Study Session Manager started")
+    logger.info("Local storage: ~/.local/share/study-session/")
+    logger.info("Logs: ~/.local/share/study-session/logs/")
+    logger.info("Right-click the tray icon to access menu")
 
     sys.exit(app.exec_())
 

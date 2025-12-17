@@ -8,6 +8,9 @@ from PyQt5.QtCore import QTimer
 from models import StudySession
 from api import SessionAPIManager
 from dialogs import InputDialog, SelectDialog, EnvironmentDialog, SettingsDialog
+from logger import setup_logger
+
+logger = setup_logger('tray')
 
 class StudySessionTray(QSystemTrayIcon):
     def __init__(self, app, parent=None):
@@ -65,11 +68,6 @@ class StudySessionTray(QSystemTrayIcon):
         self.quit_action = QAction("❌ Quit"); self.quit_action.triggered.connect(self.quit_app); self.menu.addAction(self.quit_action)
         # Attach as tray context menu for KDE
         self.setContextMenu(self.menu)
-        try:
-            labels = [a.text() for a in self.menu.actions()]
-            print("[Tray] Built menu:", labels)
-        except Exception:
-            pass
         # Initialize action states and visibility
         self.update_menu_action_states()
         running = self.session.is_running
