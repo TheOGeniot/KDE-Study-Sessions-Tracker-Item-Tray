@@ -23,6 +23,7 @@ class StudySessionTray(QSystemTrayIcon):
         # Environment context (set via future dialog; defaults empty)
         self.current_location = ""
         self.current_equipment = ""
+        self.last_profile = ""  # Track last used profile
         # Clock icon with robust fallbacks: theme -> local svg -> generic
         icon = QIcon.fromTheme("clock")
         if icon.isNull():
@@ -54,11 +55,14 @@ class StudySessionTray(QSystemTrayIcon):
         self.menu = QMenu()
         self.status_action = QAction("📊 Idle"); self.status_action.setEnabled(False)
         status_font = self.status_action.font(); status_font.setBold(True); self.status_action.setFont(status_font)
-        self.menu.addAction(self.status_action); self.menu.addSeparator()
+        self.menu.addAction(self.status_action)
+        self.profile_action = QAction("Profile: None"); self.profile_action.triggered.connect(self.change_profile)
+        self.menu.addAction(self.profile_action)
+        self.menu.addSeparator()
         # Place Sync near the top for visibility
         self.sync_action = QAction("🔄 Sync Now"); self.sync_action.triggered.connect(self.sync_now); self.menu.addAction(self.sync_action)
         # Keep references to prevent GC removing actions
-        self.env_action = QAction("🌐 Change Environment…"); self.env_action.triggered.connect(self.change_environment); self.menu.addAction(self.env_action)
+        self.change_profile_action = QAction("📋 Change Profile…"); self.change_profile_action.triggered.connect(self.change_profile_during_session); self.menu.addAction(self.change_profile_action)
         self.start_action = QAction("▶️  Start Session"); self.start_action.triggered.connect(self.start_session); self.menu.addAction(self.start_action)
         self.pause_action = QAction("⏸️  Pause Session"); self.pause_action.triggered.connect(self.pause_session); self.menu.addAction(self.pause_action)
         self.continue_action = QAction("▶️  Continue Session"); self.continue_action.triggered.connect(self.continue_session); self.menu.addAction(self.continue_action)
@@ -71,8 +75,8 @@ class StudySessionTray(QSystemTrayIcon):
         # Initialize action states and visibility
         self.update_menu_action_states()
         running = self.session.is_running
-        if self.env_action:
-            self.env_action.setVisible(running)
+        if self.change_profile_action:
+            self.change_profile_action.setVisible(running)
         if self.sync_action:
             self.sync_action.setVisible(not running)
         # Ensure context menu is non-empty and visible
@@ -81,17 +85,22 @@ class StudySessionTray(QSystemTrayIcon):
     def start_session(self):
         if self.session.is_running:
             self.show_notification("⚠️  Session Active", "End current session first", 3000); return
-        # Prompt for environment before starting
-        env_dialog = EnvironmentDialog(None, db=self.api.db, title="Select Environment", label="Pick location and equipment for this session")
-        if env_dialog.exec_() != env_dialog.Accepted:
-            return
-        loc, eq = env_dialog.get_result()
-        self.current_location = loc
-        self.current_equipment = eq
+        # Auto-use last profile if set, otherwise prompt
+        if self.last_profile:
+            prof = self.api.db.get_profile(self.last_profile)
+            if prof:
+                self.current_location = prof.get('location', '')
+                self.current_equipment = prof.get('equipment', '')
+            else:
+                # Profile was deleted, clear it
+                self.last_profile = ""
+                self.update_profile_display()
+        # If no profile set, use current location/equipment (which may be empty)
         self.session.start();
         # Log locally only; no API call during session
         self.api.db.log_event(self.session.id, 'start', {})
-        self.show_notification("🎯 Session Started", "Focus time activated!", 2000)
+        profile_info = f" ({self.last_profile})" if self.last_profile else ""
+        self.show_notification("🎯 Session Started", f"Focus time activated!{profile_info}", 2000)
     
     def pause_session(self):
         if not self.session.is_running:
@@ -230,17 +239,101 @@ class StudySessionTray(QSystemTrayIcon):
             self.continue_action.setEnabled(running and paused)
         if self.end_action:
             self.end_action.setEnabled(running)
-        # Toggle visibility of Sync vs Change Environment
-        if hasattr(self, 'env_action') and self.env_action:
-            self.env_action.setVisible(running)
+        # Toggle visibility of Sync vs Change Profile
+        if hasattr(self, 'change_profile_action') and self.change_profile_action:
+            self.change_profile_action.setVisible(running)
         if hasattr(self, 'sync_action') and self.sync_action:
             self.sync_action.setVisible(not running)
     
     def show_notification(self, title, message, duration=2000):
         self.showMessage(title, message, QSystemTrayIcon.Information, duration)
     
+    def change_profile(self):
+        """Allow user to select/edit a profile from the tray menu"""
+        env_dialog = EnvironmentDialog(None, db=self.api.db, title="Select/Edit Profile", label="Choose or modify a profile")
+        if env_dialog.exec_() != env_dialog.Accepted:
+            return
+        loc, eq = env_dialog.get_result()
+        
+        # Get the selected profile name if one was loaded
+        profile_name = env_dialog.profile_combo.currentText() if env_dialog.profile_combo.currentText() else ""
+        
+        self.current_location = loc
+        self.current_equipment = eq
+        self.last_profile = profile_name
+        self.update_profile_display()
+        self.show_notification("📋 Profile Updated", profile_name if profile_name else "Custom settings", 2000)
+    
+    def update_profile_display(self):
+        """Update the profile action text in the menu"""
+        if self.profile_action:
+            display = self.last_profile if self.last_profile else "None"
+            self.profile_action.setText(f"Profile: {display}")
+    
     def quit_app(self):
         self.hide(); self.app.quit()
+
+    def change_profile_during_session(self):
+        """Change profile during an active session - splits the session"""
+        if not self.session.is_running:
+            # Not running, just use the regular change_profile
+            self.change_profile()
+            return
+        
+        profiles = self.api.db.get_profiles()
+        if not profiles:
+            self.show_notification("📋 No Profiles", "Create profiles in Settings first", 2000)
+            return
+        
+        profile_names = [p['name'] for p in profiles]
+        dialog = SelectDialog(None, "Change Profile", "Select new profile (will split session):", profile_names)
+        if dialog.exec_() != dialog.Accepted:
+            return
+        
+        selected = dialog.get_value()
+        if not selected:
+            return
+        
+        prof = self.api.db.get_profile(selected)
+        if not prof:
+            return
+        
+        new_loc = prof.get('location', '')
+        new_eq = prof.get('equipment', '')
+        
+        reply = QMessageBox.question(None,
+                                     "Split Session?",
+                                     f"Changing to profile '{selected}' will end the current session and start a new one. Continue?",
+                                     QMessageBox.Yes | QMessageBox.No,
+                                     QMessageBox.No)
+        if reply != QMessageBox.Yes:
+            return
+        
+        # Finish current session with an auto note and current environment
+        old_id = self.session.id
+        # Close any active pause before ending
+        if self.session.pause_manager.get_active_pauses():
+            try:
+                self.session.resume()
+            except Exception:
+                pass
+        auto_note = f"continuing session {old_id}; profile changed to {selected}"
+        # End and persist old session with old env
+        try:
+            self.session.end()
+        except Exception:
+            pass
+        self.api.db.save_session(self.session, auto_note, location=self.current_location, equipment=self.current_equipment)
+        
+        # Start a fresh session with new profile
+        self.last_profile = selected
+        self.current_location = new_loc
+        self.current_equipment = new_eq
+        self.update_profile_display()
+        self.session = StudySession(); self.session.status_changed.connect(self.on_session_status_changed)
+        self.session.start()
+        self.api.db.log_event(self.session.id, 'start', {})
+        self.show_notification("📋 Profile Changed", f"New session started with {selected}", 3000)
 
     def change_environment(self):
         env_dialog = EnvironmentDialog(None, db=self.api.db, title="Change Environment", label="Update location and equipment")
@@ -272,14 +365,19 @@ class StudySessionTray(QSystemTrayIcon):
                 # Start a fresh session with new environment
                 self.current_location = new_loc
                 self.current_equipment = new_eq
+                # Clear last profile since we manually changed environment
+                self.last_profile = ""
+                self.update_profile_display()
                 self.session = StudySession(); self.session.status_changed.connect(self.on_session_status_changed)
                 self.session.start()
                 self.api.db.log_event(self.session.id, 'start', {})
                 self.show_notification("🌐 Environment Changed", f"New session started @ {new_loc or '—'}", 3000)
             else:
-                # No active session: just update environment context
+                # No active session: just update environment context and clear profile
                 self.current_location = new_loc
                 self.current_equipment = new_eq
+                self.last_profile = ""
+                self.update_profile_display()
                 self.show_notification("🌐 Environment Updated", f"Location: {new_loc or '—'}", 2000)
 
     def open_settings(self):
