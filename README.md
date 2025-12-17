@@ -48,6 +48,11 @@ chmod +x ./setup.sh
 ./setup.sh --run
 ```
 
+## License
+
+This project is licensed under the GNU General Public License v3.0 (GPL-3.0). See the `LICENSE` file in the repository root for the full license text and details on redistribution and modification.
+
+
 **Optional: Configure N8N integration**
 
 Create `.env` in the project root to enable webhook sync:
