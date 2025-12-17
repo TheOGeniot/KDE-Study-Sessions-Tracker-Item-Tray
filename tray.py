@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import os
 from datetime import datetime
 from PyQt5.QtWidgets import QSystemTrayIcon, QMenu, QAction, QMessageBox
 from PyQt5.QtGui import QIcon, QCursor
@@ -24,6 +23,8 @@ class StudySessionTray(QSystemTrayIcon):
         self.current_location = ""
         self.current_equipment = ""
         self.last_profile = ""  # Track last used profile
+        # Load last profile from persistent storage
+        self._load_last_profile()
         # Clock icon with robust fallbacks: theme -> local svg -> generic
         icon = QIcon.fromTheme("clock")
         if icon.isNull():
@@ -40,6 +41,8 @@ class StudySessionTray(QSystemTrayIcon):
         self.setup_menu()
         self.activated.connect(self.on_tray_activated)
         self.update_timer = QTimer(); self.update_timer.timeout.connect(self.update_menu_status); self.update_timer.start(1000)
+        # Update profile display after menu is set up
+        self.update_profile_display()
     
     def on_tray_activated(self, reason):
         cursor_pos = QCursor.pos()
@@ -145,60 +148,6 @@ class StudySessionTray(QSystemTrayIcon):
                 self.show_notification("✅ Session Ended", f"Logged: {duration_str}", 3000)
                 self.session = StudySession(); self.session.status_changed.connect(self.on_session_status_changed)
     
-    def log_thoughts(self):
-        if not self.session.is_running:
-            self.show_notification("💭 No Active Session", "Start a session to log thoughts", 2000); return
-        dialog = InputDialog(None, "Log Thoughts", "What's on your mind?")
-        if dialog.exec_() == dialog.Accepted:
-            thoughts = dialog.get_text()
-            if thoughts:
-                params = {'notes': thoughts}
-                # Local-only event log
-                self.api.db.log_event(self.session.id, 'thoughts', params)
-                self.show_notification("💭 Thought Logged", "Captured!", 2000)
-    
-    def log_mood(self):
-        if not self.session.is_running:
-            self.show_notification("😊 No Active Session", "Start a session to log mood", 2000); return
-        moods = ["😊 Focused", "😐 Neutral", "😤 Frustrated", "😴 Tired", "🎉 Energized"]
-        dialog = SelectDialog(None, "Log Mood", "How are you feeling?", moods)
-        if dialog.exec_() == dialog.Accepted:
-            mood = dialog.get_value()
-            params = {'mood': mood}
-            # Local-only event log
-            self.api.db.log_event(self.session.id, 'mood', params)
-            self.show_notification("😊 Mood Logged", mood, 2000)
-    
-    def set_focus_area(self):
-        if not self.session.is_running:
-            self.show_notification("🎯 No Active Session", "Start a session to set focus", 2000); return
-        dialog = InputDialog(None, "Set Focus Area", "What are you working on?", multiline=False)
-        if dialog.exec_() == dialog.Accepted:
-            focus = dialog.get_text()
-            if focus:
-                params = {'focus': focus}
-                # Local-only event log
-                self.api.db.log_event(self.session.id, 'focus', params)
-                self.show_notification("🎯 Focus Set", focus, 2000)
-    
-    def show_stats(self):
-        sessions = self.api.db.fetch_unsynced_sessions()
-        ended = [s for s in sessions if s.get('ended_at')]
-        sessions_count = len(ended)
-        def to_int(v):
-            try:
-                return int(v)
-            except Exception:
-                return 0
-        total_seconds = sum(to_int(s.get('total_duration_seconds')) for s in ended)
-        total_pauses = sum(to_int(s.get('pause_count')) for s in ended)
-        total_hours = total_seconds / 3600 if total_seconds else 0
-        msg = f"📊 Total Sessions: {sessions_count}\n⏱️  Total Time: {total_hours:.1f} hours\n⏸️  Total Pauses: {int(total_pauses)}"
-        QMessageBox.information(None, "Session Statistics", msg)
-    
-    def run_command(self, subcommand, params=None, session_id=None):
-        self.api.run_async(self.api.make_request(subcommand, params, session_id))
-
     def sync_now(self):
         # Manually trigger sync to n8n endpoints as configured in .env
         print("[Tray] Sync Now clicked — starting manual sync...")
@@ -261,6 +210,7 @@ class StudySessionTray(QSystemTrayIcon):
         self.current_location = loc
         self.current_equipment = eq
         self.last_profile = profile_name
+        self._save_last_profile()
         self.update_profile_display()
         self.show_notification("📋 Profile Updated", profile_name if profile_name else "Custom settings", 2000)
     
@@ -269,6 +219,24 @@ class StudySessionTray(QSystemTrayIcon):
         if self.profile_action:
             display = self.last_profile if self.last_profile else "None"
             self.profile_action.setText(f"Profile: {display}")
+    
+    def _load_last_profile(self):
+        """Load last used profile from persistent storage"""
+        last_profile = self.api.db.get_setting('last_profile', '')
+        if last_profile:
+            prof = self.api.db.get_profile(last_profile)
+            if prof:
+                self.last_profile = last_profile
+                self.current_location = prof.get('location', '')
+                self.current_equipment = prof.get('equipment', '')
+                logger.info(f"Loaded last profile: {last_profile}")
+            else:
+                logger.info(f"Last profile '{last_profile}' not found, cleared")
+    
+    def _save_last_profile(self):
+        """Save last used profile to persistent storage"""
+        self.api.db.set_setting('last_profile', self.last_profile)
+        logger.info(f"Saved last profile: {self.last_profile or '(none)'}")
     
     def quit_app(self):
         self.hide(); self.app.quit()
@@ -329,56 +297,12 @@ class StudySessionTray(QSystemTrayIcon):
         self.last_profile = selected
         self.current_location = new_loc
         self.current_equipment = new_eq
+        self._save_last_profile()
         self.update_profile_display()
         self.session = StudySession(); self.session.status_changed.connect(self.on_session_status_changed)
         self.session.start()
         self.api.db.log_event(self.session.id, 'start', {})
         self.show_notification("📋 Profile Changed", f"New session started with {selected}", 3000)
-
-    def change_environment(self):
-        env_dialog = EnvironmentDialog(None, db=self.api.db, title="Change Environment", label="Update location and equipment")
-        if env_dialog.exec_() == env_dialog.Accepted:
-            new_loc, new_eq = env_dialog.get_result()
-            if self.session.is_running:
-                reply = QMessageBox.question(None,
-                                             "Split Session?",
-                                             "Changing environment will end the current session and start a new one. Continue?",
-                                             QMessageBox.Yes | QMessageBox.No,
-                                             QMessageBox.No)
-                if reply != QMessageBox.Yes:
-                    return
-                # Finish current session with an auto note and current environment
-                old_id = self.session.id
-                # Close any active pause before ending
-                if self.session.pause_manager.get_active_pauses():
-                    try:
-                        self.session.resume()
-                    except Exception:
-                        pass
-                auto_note = f"continuing session {old_id}; environment changed"
-                # End and persist old session with old env
-                try:
-                    self.session.end()
-                except Exception:
-                    pass
-                self.api.db.save_session(self.session, auto_note, location=self.current_location, equipment=self.current_equipment)
-                # Start a fresh session with new environment
-                self.current_location = new_loc
-                self.current_equipment = new_eq
-                # Clear last profile since we manually changed environment
-                self.last_profile = ""
-                self.update_profile_display()
-                self.session = StudySession(); self.session.status_changed.connect(self.on_session_status_changed)
-                self.session.start()
-                self.api.db.log_event(self.session.id, 'start', {})
-                self.show_notification("🌐 Environment Changed", f"New session started @ {new_loc or '—'}", 3000)
-            else:
-                # No active session: just update environment context and clear profile
-                self.current_location = new_loc
-                self.current_equipment = new_eq
-                self.last_profile = ""
-                self.update_profile_display()
-                self.show_notification("🌐 Environment Updated", f"Location: {new_loc or '—'}", 2000)
 
     def open_settings(self):
         dlg = SettingsDialog(None, db=self.api.db, title="Settings")

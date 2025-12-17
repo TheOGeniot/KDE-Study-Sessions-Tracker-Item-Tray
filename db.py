@@ -19,6 +19,7 @@ class SessionDatabase:
         self.location_catalog_csv = self.csv_path.parent / 'location_catalog.csv'
         self.equipment_catalog_csv = self.csv_path.parent / 'equipment_catalog.csv'
         self.profiles_csv = self.csv_path.parent / 'profiles.csv'
+        self.settings_csv = self.csv_path.parent / 'settings.csv'
         self.ensure_csv_headers()
 
     def ensure_csv_headers(self):
@@ -365,5 +366,75 @@ class SessionDatabase:
             return False
         with self.profiles_csv.open(mode='w', newline='') as f:
             writer = csv.DictWriter(f, fieldnames=['name', 'location', 'equipment'])
+            writer.writeheader(); writer.writerows(rows)
+        return True
+
+    def get_setting(self, key: str, default: str = ""):
+        """Get a setting value by key"""
+        key = (key or '').strip()
+        if not key or not self.settings_csv.exists():
+            return default
+        with self.settings_csv.open(mode='r', newline='') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if row.get('key') == key:
+                    return row.get('value', default)
+        return default
+
+    def set_setting(self, key: str, value: str = ""):
+        """Set a setting value by key"""
+        key = (key or '').strip()
+        if not key:
+            return False
+        rows = []
+        updated = False
+        if self.settings_csv.exists():
+            with self.settings_csv.open(mode='r', newline='') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if row.get('key') == key:
+                        rows.append({'key': key, 'value': value or ''})
+                        updated = True
+                    else:
+                        rows.append(row)
+        if not updated:
+            rows.append({'key': key, 'value': value or ''})
+        with self.settings_csv.open(mode='w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=['key', 'value'])
+            writer.writeheader(); writer.writerows(rows)
+        return True
+
+    def get_setting(self, key: str, default: str = ""):
+        """Get a setting value by key"""
+        key = (key or '').strip()
+        if not key or not self.settings_csv.exists():
+            return default
+        with self.settings_csv.open(mode='r', newline='') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if row.get('key') == key:
+                    return row.get('value', default)
+        return default
+
+    def set_setting(self, key: str, value: str = ""):
+        """Set a setting value by key"""
+        key = (key or '').strip()
+        if not key:
+            return False
+        rows = []
+        updated = False
+        if self.settings_csv.exists():
+            with self.settings_csv.open(mode='r', newline='') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if row.get('key') == key:
+                        rows.append({'key': key, 'value': value or ''})
+                        updated = True
+                    else:
+                        rows.append(row)
+        if not updated:
+            rows.append({'key': key, 'value': value or ''})
+        with self.settings_csv.open(mode='w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=['key', 'value'])
             writer.writeheader(); writer.writerows(rows)
         return True
