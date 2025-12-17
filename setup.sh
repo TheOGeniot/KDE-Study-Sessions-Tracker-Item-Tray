@@ -6,7 +6,8 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="${PROJECT_DIR}/.venv"
-NO_VENV=0
+# Default to NO VENV per project preference
+NO_VENV=1
 RUN_APP=0
 
 # ============================================================================
@@ -18,14 +19,14 @@ usage() {
 Usage: ./setup.sh [OPTIONS]
 
 Options:
-  --no-venv         Skip venv creation; use system Python (not recommended)
-  --venv <path>     Create/use a specific venv path (default: .venv)
+  --no-venv         Skip venv creation; use system Python (default)
+  --venv <path>     Create/use a specific venv path (optional)
   --run             Run the app after setup
   -h, --help        Show this help message
 
 Examples:
-  ./setup.sh                           # Create venv in .venv, install deps
-  ./setup.sh --no-venv                 # Install deps to system Python
+  ./setup.sh                           # Install deps with system Python (no venv)
+  ./setup.sh --venv .venv              # Use a virtualenv at .venv
   ./setup.sh --run                     # Setup and run the app
   ./setup.sh --venv ~/my-venv --run    # Custom venv path and run
 
@@ -35,9 +36,12 @@ Environment:
     N8N_SESSION_LOG_ENDPOINT=session-log
     N8N_SESSION_PAUSES_ENDPOINT=session-pauses
 
-Database & CSV:
-  ~/.local/share/study-session/sessions.db  (SQLite)
-  ~/.local/share/study-session/sessions.csv (CSV export)
+Local Data (CSV):
+  ~/.local/share/study-session/sessions.csv
+  ~/.local/share/study-session/pauses.csv
+  ~/.local/share/study-session/location_catalog.csv
+  ~/.local/share/study-session/equipment_catalog.csv
+  ~/.local/share/study-session/profiles.csv
 EOF
 }
 
@@ -118,15 +122,27 @@ fi
 # ============================================================================
 
 log "Upgrading pip..."
-"$PIP_BIN" install --upgrade pip setuptools wheel >/dev/null 2>&1
+if [[ "$NO_VENV" -eq 1 ]]; then
+  "$PIP_BIN" install --user --upgrade pip setuptools wheel >/dev/null 2>&1 || true
+else
+  "$PIP_BIN" install --upgrade pip setuptools wheel >/dev/null 2>&1
+fi
 
 if [[ -f "$PROJECT_DIR/requirements.txt" ]]; then
   log "Installing from requirements.txt..."
-  "$PIP_BIN" install -r "$PROJECT_DIR/requirements.txt"
+  if [[ "$NO_VENV" -eq 1 ]]; then
+    "$PIP_BIN" install --user -r "$PROJECT_DIR/requirements.txt"
+  else
+    "$PIP_BIN" install -r "$PROJECT_DIR/requirements.txt"
+  fi
   log "Dependencies installed."
 else
   log "requirements.txt not found; installing minimal deps..."
-  "$PIP_BIN" install PyQt5 python-dotenv aiohttp
+  if [[ "$NO_VENV" -eq 1 ]]; then
+    "$PIP_BIN" install --user PyQt5 python-dotenv aiohttp
+  else
+    "$PIP_BIN" install PyQt5 python-dotenv aiohttp
+  fi
 fi
 
 # ============================================================================
@@ -152,4 +168,7 @@ else
   log ""
   log "To run the app, use:"
   log "  $PYTHON_BIN \"$PROJECT_DIR/study_session_tray_standalone.py\""
+  if [[ "$NO_VENV" -eq 1 ]]; then
+    log "If python cannot import packages, ensure --user bin path is on PATH."
+  fi
 fi

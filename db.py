@@ -15,17 +15,43 @@ class SessionDatabase:
         self.csv_path = csv_path
         self.csv_path.parent.mkdir(parents=True, exist_ok=True)
         self.pauses_csv = self.csv_path.parent / 'pauses.csv'
+        # Catalogs and profiles
+        self.location_catalog_csv = self.csv_path.parent / 'location_catalog.csv'
+        self.equipment_catalog_csv = self.csv_path.parent / 'equipment_catalog.csv'
+        self.profiles_csv = self.csv_path.parent / 'profiles.csv'
         self.ensure_csv_headers()
 
     def ensure_csv_headers(self):
-        """Ensure CSV files have headers if they don't exist."""
+        """Ensure CSV files have headers; migrate old headers to include new columns."""
+        session_fields = [
+            'session_id', 'started_at', 'ended_at', 'total_duration_seconds',
+            'active_time_seconds', 'pause_count', 'total_pause_duration_seconds', 'notes',
+            'location', 'equipment'
+        ]
+        # Create or migrate sessions.csv
         if not self.csv_path.exists() or self.csv_path.stat().st_size == 0:
             with self.csv_path.open(mode='w', newline='') as f:
-                writer = csv.DictWriter(f, fieldnames=[
-                    'session_id', 'started_at', 'ended_at', 'total_duration_seconds',
-                    'active_time_seconds', 'pause_count', 'total_pause_duration_seconds', 'notes'
-                ])
+                writer = csv.DictWriter(f, fieldnames=session_fields)
                 writer.writeheader()
+        else:
+            # Migrate existing file if missing new columns
+            with self.csv_path.open(mode='r', newline='') as f:
+                reader = csv.DictReader(f)
+                existing_fields = reader.fieldnames or []
+                needs_migration = any(col not in existing_fields for col in ['location', 'equipment'])
+                if needs_migration:
+                    rows = list(reader)
+            if 'needs_migration' in locals() and needs_migration:
+                # Re-write with new headers; fill missing fields with ''
+                with self.csv_path.open(mode='w', newline='') as fw:
+                    writer = csv.DictWriter(fw, fieldnames=session_fields)
+                    writer.writeheader()
+                    for row in rows:
+                        row = row or {}
+                        for col in session_fields:
+                            if col not in row:
+                                row[col] = ''
+                        writer.writerow(row)
 
         if not self.pauses_csv.exists() or self.pauses_csv.stat().st_size == 0:
             with self.pauses_csv.open(mode='w', newline='') as f:
@@ -34,7 +60,23 @@ class SessionDatabase:
                 ])
                 writer.writeheader()
 
-    def save_session(self, session: StudySession, notes: str = ""):
+        # Initialize catalogs and profiles if missing
+        if not self.location_catalog_csv.exists() or self.location_catalog_csv.stat().st_size == 0:
+            with self.location_catalog_csv.open(mode='w', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=['location'])
+                writer.writeheader()
+                for loc in ['home', 'class', 'transports']:
+                    writer.writerow({'location': loc})
+        if not self.equipment_catalog_csv.exists() or self.equipment_catalog_csv.stat().st_size == 0:
+            with self.equipment_catalog_csv.open(mode='w', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=['equipment'])
+                writer.writeheader()
+        if not self.profiles_csv.exists() or self.profiles_csv.stat().st_size == 0:
+            with self.profiles_csv.open(mode='w', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=['name', 'location', 'equipment'])
+                writer.writeheader()
+
+    def save_session(self, session: StudySession, notes: str = "", location: str = "", equipment: str = ""):
         """Save a session to CSV (sessions.csv) and log its pauses (pauses.csv)."""
         summary = session.end()
         if not summary:
@@ -62,12 +104,15 @@ class SessionDatabase:
             'active_time_seconds': summary.get('active_time', 0),
             'pause_count': summary.get('pause_count', 0),
             'total_pause_duration_seconds': summary.get('total_pause', 0),
-            'notes': notes or ''
+            'notes': notes or '',
+            'location': location or '',
+            'equipment': equipment or ''
         }
         with self.csv_path.open(mode='a', newline='') as f:
             writer = csv.DictWriter(f, fieldnames=[
                 'session_id', 'started_at', 'ended_at', 'total_duration_seconds',
-                'active_time_seconds', 'pause_count', 'total_pause_duration_seconds', 'notes'
+                'active_time_seconds', 'pause_count', 'total_pause_duration_seconds', 'notes',
+                'location', 'equipment'
             ])
             writer.writerow(session_row)
 
@@ -155,8 +200,170 @@ class SessionDatabase:
         with self.csv_path.open(mode='w', newline='') as f:
             writer = csv.DictWriter(f, fieldnames=[
                 'session_id', 'started_at', 'ended_at', 'total_duration_seconds',
-                'active_time_seconds', 'pause_count', 'total_pause_duration_seconds', 'notes'
+                'active_time_seconds', 'pause_count', 'total_pause_duration_seconds', 'notes',
+                'location', 'equipment'
             ])
             writer.writeheader()
             writer.writerows(rows)
         return deleted
+
+    # Catalog and profile helpers
+    def get_location_catalog(self):
+        items = []
+        if self.location_catalog_csv.exists():
+            with self.location_catalog_csv.open(mode='r', newline='') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if row.get('location'):
+                        items.append(row['location'])
+        return items
+
+    def add_location(self, name: str):
+        name = (name or '').strip()
+        if not name:
+            return False
+        existing = set(self.get_location_catalog())
+        if name in existing:
+            return True
+        with self.location_catalog_csv.open(mode='a', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=['location'])
+            writer.writerow({'location': name})
+        return True
+
+    def remove_location(self, name: str):
+        if not self.location_catalog_csv.exists():
+            return 0
+        rows = []
+        removed = 0
+        with self.location_catalog_csv.open(mode='r', newline='') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if row.get('location') != name:
+                    rows.append(row)
+                else:
+                    removed += 1
+        with self.location_catalog_csv.open(mode='w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=['location'])
+            writer.writeheader(); writer.writerows(rows)
+        return removed
+
+    def get_equipment_catalog(self):
+        items = []
+        if self.equipment_catalog_csv.exists():
+            with self.equipment_catalog_csv.open(mode='r', newline='') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if row.get('equipment'):
+                        items.append(row['equipment'])
+        return items
+
+    def add_equipment(self, name: str):
+        name = (name or '').strip()
+        if not name:
+            return False
+        existing = set(self.get_equipment_catalog())
+        if name in existing:
+            return True
+        with self.equipment_catalog_csv.open(mode='a', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=['equipment'])
+            writer.writerow({'equipment': name})
+        return True
+
+    def remove_equipment(self, name: str):
+        if not self.equipment_catalog_csv.exists():
+            return 0
+        rows = []
+        removed = 0
+        with self.equipment_catalog_csv.open(mode='r', newline='') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if row.get('equipment') != name:
+                    rows.append(row)
+                else:
+                    removed += 1
+        with self.equipment_catalog_csv.open(mode='w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=['equipment'])
+            writer.writeheader(); writer.writerows(rows)
+        return removed
+
+    def get_profiles(self):
+        profiles = []
+        if self.profiles_csv.exists():
+            with self.profiles_csv.open(mode='r', newline='') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if row:
+                        profiles.append({'name': row.get('name', ''), 'location': row.get('location', ''), 'equipment': row.get('equipment', '')})
+        return profiles
+
+    def get_profile(self, name: str):
+        name = (name or '').strip()
+        if not name or not self.profiles_csv.exists():
+            return None
+        with self.profiles_csv.open(mode='r', newline='') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if row.get('name') == name:
+                    return {'name': row.get('name', ''), 'location': row.get('location', ''), 'equipment': row.get('equipment', '')}
+        return None
+
+    def save_profile(self, name: str, location: str = "", equipment: str = ""):
+        name = (name or '').strip()
+        if not name:
+            return False
+        rows = []
+        updated = False
+        if self.profiles_csv.exists():
+            with self.profiles_csv.open(mode='r', newline='') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if row.get('name') == name:
+                        rows.append({'name': name, 'location': location or '', 'equipment': equipment or ''})
+                        updated = True
+                    else:
+                        rows.append(row)
+        if not updated:
+            rows.append({'name': name, 'location': location or '', 'equipment': equipment or ''})
+        with self.profiles_csv.open(mode='w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=['name', 'location', 'equipment'])
+            writer.writeheader(); writer.writerows(rows)
+        return True
+
+    def delete_profile(self, name: str):
+        if not self.profiles_csv.exists():
+            return 0
+        rows = []
+        removed = 0
+        with self.profiles_csv.open(mode='r', newline='') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if row.get('name') != name:
+                    rows.append(row)
+                else:
+                    removed += 1
+        with self.profiles_csv.open(mode='w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=['name', 'location', 'equipment'])
+            writer.writeheader(); writer.writerows(rows)
+        return removed
+
+    def rename_profile(self, old_name: str, new_name: str):
+        if not self.profiles_csv.exists():
+            return False
+        new_name = (new_name or '').strip()
+        if not new_name:
+            return False
+        rows = []
+        changed = False
+        with self.profiles_csv.open(mode='r', newline='') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if row.get('name') == old_name:
+                    row['name'] = new_name
+                    changed = True
+                rows.append(row)
+        if not changed:
+            return False
+        with self.profiles_csv.open(mode='w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=['name', 'location', 'equipment'])
+            writer.writeheader(); writer.writerows(rows)
+        return True

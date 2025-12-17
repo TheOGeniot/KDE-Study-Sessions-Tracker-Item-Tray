@@ -2,16 +2,17 @@
 
 > **Purpose**: Personal study data collection for AI-driven productivity optimization  
 > **Status**: Prototype — Functional for data collection, not production-ready  
+> **Development**: This project is entirely vibecoded  
 > A KDE-friendly system tray app to track study sessions locally and export data to N8N for processing. Built to gather rich session metadata (pauses, reasons, timestamps, notes) as training data for a future personal AI that maximizes productivity and performance.
 
-Collect study session data with pause tracking, mood logging, and focus areas. All data stored locally in SQLite + CSV, with manual sync to N8N webhooks for ingestion into your ML pipeline.
+Collect study session data with pause tracking, mood logging, focus areas, and environment context (location + equipment). All data stored locally in CSV only, with manual sync to N8N webhooks for ingestion into your ML pipeline.
 
 ## Project Structure
 
 - `study_session_tray_standalone.py`: Entrypoint. Loads env, initializes Qt, shows tray UI.
 - `tray.py`: Tray UI and menu actions (Start, Pause, Continue, End, stats, notifications).
 - `models.py`: Core domain (Pause, PauseManager, StudySession).
-- `db.py`: Local persistence (SQLite schema, session/pauses/events logging).
+- `db.py`: Local persistence (CSV storage for sessions/pauses, catalogs, and profiles).
 - `api.py`: Optional N8N integration (async HTTP with local fallback).
 - `dialogs.py`: Polished input/select dialogs used by tray actions.
 
@@ -21,13 +22,13 @@ Requirements:
 - Python 3.10+
 - KDE/Plasma or a system tray-capable desktop (X11/Wayland)
 
-Install dependencies:
+Install dependencies (no virtualenv by default):
 
 ```bash
-pip3 install -r requirements.txt
+pip3 install --user -r requirements.txt
 ```
 
-Quick setup:
+Quick setup (defaults to no venv):
 
 ```bash
 chmod +x ./setup.sh
@@ -46,7 +47,7 @@ N8N_SESSION_PAUSES_ENDPOINT=session-pauses
 
 ## Run
 
-Use the standalone entrypoint:
+Run the tray app:
 
 ```bash
 python3 "./study_session_tray_standalone.py"
@@ -62,21 +63,24 @@ You should see a tray icon; right-click (and left-click) opens the menu.
 - Continue session: resume from pause
 - End session: log session summary (active time, pause count, total pause duration, optional notes)
 - Log thoughts, mood (5-point scale), and focus area during the session
-- View summary stats from local SQLite database
+- View summary stats computed from local CSV data
 
 **Storage & Export:**
-- All data stays local by default (SQLite + CSV)
+- All data stays local by default (CSV only)
 - Manual sync to N8N via "🔄 Sync Now" button for centralized processing
-- Rich metadata: timestamps, durations, pause reasons, mood, focus area, notes
+- Rich metadata: timestamps, durations, pause reasons, mood, focus area, notes, location, equipment
 
 ## Storage
 
 All data stored in CSV format in `~/.local/share/study-session/`:
 
 - **sessions.csv**: One row per ended session
-  - Columns: `session_id`, `started_at`, `ended_at`, `total_duration_seconds`, `active_time_seconds`, `pause_count`, `total_pause_duration_seconds`, `notes`
+  - Columns: `session_id`, `started_at`, `ended_at`, `total_duration_seconds`, `active_time_seconds`, `pause_count`, `total_pause_duration_seconds`, `notes`, `location`, `equipment`
 - **pauses.csv**: One row per pause within a session
   - Columns: `id`, `session_id`, `reason`, `started_at`, `ended_at`, `duration_seconds`
+- **location_catalog.csv**: Preset and user-added locations (defaults: home, class, transports)
+- **equipment_catalog.csv**: User-added equipment inventory (starts empty)
+- **profiles.csv**: Saved environment profiles (`name, location, equipment`)
 
 Simple, portable, and directly feedable into your ML pipeline.
 
@@ -86,10 +90,11 @@ Simple, portable, and directly feedable into your ML pipeline.
 
 Use this to push collected session data to N8N for processing, storage, or ML training pipelines.
 
-- For each unsynced session in the local DB:
+- For each unsynced session in local CSVs:
   - `POST /session-log`: one call per session (final summary with timestamps, durations, notes)
   - For each pause in that session:
     - `POST /session-pauses`: one call per pause (reason, started_at, ended_at, duration)
+  - Environment context included in session-log: `location`, `equipment`
 - Timestamp format: ISO-8601 with seconds zeroed (e.g. `2025-12-16T11:26:00`) for cleaner data
 - **Robust error handling**: All endpoints are attempted; failures do not stop the sync
 - **Deletion policy**:
@@ -141,4 +146,4 @@ Use this to push collected session data to N8N for processing, storage, or ML tr
 - Menu not opening: KDE requires `setContextMenu(self.menu)`; this is set in `tray.py`.
 - Python warnings:
   - Async loop: uses `asyncio.get_running_loop()` to avoid deprecation.
-  - SQLite datetime: timestamps stored as strings to avoid adapter deprecation.
+  - CSV I/O: files are rewritten on deletions; ensure disk has space.

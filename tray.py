@@ -7,7 +7,7 @@ from PyQt5.QtCore import QTimer
 
 from models import StudySession
 from api import SessionAPIManager
-from dialogs import InputDialog, SelectDialog
+from dialogs import InputDialog, SelectDialog, EnvironmentDialog, SettingsDialog
 
 class StudySessionTray(QSystemTrayIcon):
     def __init__(self, app, parent=None):
@@ -17,6 +17,9 @@ class StudySessionTray(QSystemTrayIcon):
         self.api = SessionAPIManager()
         self.api.status_changed.connect(self.on_status_changed)
         self.session.status_changed.connect(self.on_session_status_changed)
+        # Environment context (set via future dialog; defaults empty)
+        self.current_location = ""
+        self.current_equipment = ""
         # Clock icon with robust fallbacks: theme -> local svg -> generic
         icon = QIcon.fromTheme("clock")
         if icon.isNull():
@@ -51,28 +54,42 @@ class StudySessionTray(QSystemTrayIcon):
         self.menu.addAction(self.status_action); self.menu.addSeparator()
         # Place Sync near the top for visibility
         self.sync_action = QAction("🔄 Sync Now"); self.sync_action.triggered.connect(self.sync_now); self.menu.addAction(self.sync_action)
+        # Keep references to prevent GC removing actions
+        self.env_action = QAction("🌐 Change Environment…"); self.env_action.triggered.connect(self.change_environment); self.menu.addAction(self.env_action)
         self.start_action = QAction("▶️  Start Session"); self.start_action.triggered.connect(self.start_session); self.menu.addAction(self.start_action)
         self.pause_action = QAction("⏸️  Pause Session"); self.pause_action.triggered.connect(self.pause_session); self.menu.addAction(self.pause_action)
         self.continue_action = QAction("▶️  Continue Session"); self.continue_action.triggered.connect(self.continue_session); self.menu.addAction(self.continue_action)
         self.end_action = QAction("⏹️  End Session"); self.end_action.triggered.connect(self.end_session); self.menu.addAction(self.end_action)
         self.menu.addSeparator()
-        thoughts_action = QAction("💭 Log Thoughts"); thoughts_action.triggered.connect(self.log_thoughts); self.menu.addAction(thoughts_action)
-        mood_action = QAction("😊 Log Mood"); mood_action.triggered.connect(self.log_mood); self.menu.addAction(mood_action)
-        focus_action = QAction("🎯 Set Focus Area"); focus_action.triggered.connect(self.set_focus_area); self.menu.addAction(focus_action)
-        self.menu.addSeparator()
-        stats_action = QAction("📈 View Stats"); stats_action.triggered.connect(self.show_stats); self.menu.addAction(stats_action)
-        self.menu.addSeparator()
-        quit_action = QAction("❌ Quit"); quit_action.triggered.connect(self.quit_app); self.menu.addAction(quit_action)
+        self.settings_action = QAction("⚙️  Settings…"); self.settings_action.triggered.connect(self.open_settings); self.menu.addAction(self.settings_action)
+        self.quit_action = QAction("❌ Quit"); self.quit_action.triggered.connect(self.quit_app); self.menu.addAction(self.quit_action)
         # Attach as tray context menu for KDE
         self.setContextMenu(self.menu)
-        # Initialize action states
+        try:
+            labels = [a.text() for a in self.menu.actions()]
+            print("[Tray] Built menu:", labels)
+        except Exception:
+            pass
+        # Initialize action states and visibility
         self.update_menu_action_states()
+        running = self.session.is_running
+        if self.env_action:
+            self.env_action.setVisible(running)
+        if self.sync_action:
+            self.sync_action.setVisible(not running)
         # Ensure context menu is non-empty and visible
         self.setToolTip("Study Session Manager")
     
     def start_session(self):
         if self.session.is_running:
             self.show_notification("⚠️  Session Active", "End current session first", 3000); return
+        # Prompt for environment before starting
+        env_dialog = EnvironmentDialog(None, db=self.api.db, title="Select Environment", label="Pick location and equipment for this session")
+        if env_dialog.exec_() != env_dialog.Accepted:
+            return
+        loc, eq = env_dialog.get_result()
+        self.current_location = loc
+        self.current_equipment = eq
         self.session.start();
         # Log locally only; no API call during session
         self.api.db.log_event(self.session.id, 'start', {})
@@ -113,7 +130,7 @@ class StudySessionTray(QSystemTrayIcon):
                 summary['started_at'] = self.session.start_time.isoformat() if self.session.start_time else None
                 summary['ended_at'] = self.session.end_time.isoformat() if self.session.end_time else None
                 # Save to CSV (sessions.csv and pauses.csv)
-                self.api.db.save_session(self.session, notes)
+                self.api.db.save_session(self.session, notes, location=self.current_location, equipment=self.current_equipment)
                 params = { 'notes': notes, 'active_time': summary['active_time'], 'total_pause': summary['total_pause'], 'pause_count': summary['pause_count'] }
                 # Log end locally only; syncing happens via manual "Sync Now"
                 self.api.db.log_event(self.session.id, 'end', params)
@@ -158,18 +175,17 @@ class StudySessionTray(QSystemTrayIcon):
                 self.show_notification("🎯 Focus Set", focus, 2000)
     
     def show_stats(self):
-        import sqlite3
-        conn = sqlite3.connect(self.api.db.db_path)
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT COUNT(*), SUM(total_duration_seconds), SUM(pause_count)
-            FROM sessions WHERE ended_at IS NOT NULL
-        ''')
-        result = cursor.fetchone(); conn.close()
-        sessions_count = result[0] or 0
-        total_seconds = result[1] or 0
-        total_pauses = result[2] or 0
-        total_hours = total_seconds / 3600
+        sessions = self.api.db.fetch_unsynced_sessions()
+        ended = [s for s in sessions if s.get('ended_at')]
+        sessions_count = len(ended)
+        def to_int(v):
+            try:
+                return int(v)
+            except Exception:
+                return 0
+        total_seconds = sum(to_int(s.get('total_duration_seconds')) for s in ended)
+        total_pauses = sum(to_int(s.get('pause_count')) for s in ended)
+        total_hours = total_seconds / 3600 if total_seconds else 0
         msg = f"📊 Total Sessions: {sessions_count}\n⏱️  Total Time: {total_hours:.1f} hours\n⏸️  Total Pauses: {int(total_pauses)}"
         QMessageBox.information(None, "Session Statistics", msg)
     
@@ -216,9 +232,59 @@ class StudySessionTray(QSystemTrayIcon):
             self.continue_action.setEnabled(running and paused)
         if self.end_action:
             self.end_action.setEnabled(running)
+        # Toggle visibility of Sync vs Change Environment
+        if hasattr(self, 'env_action') and self.env_action:
+            self.env_action.setVisible(running)
+        if hasattr(self, 'sync_action') and self.sync_action:
+            self.sync_action.setVisible(not running)
     
     def show_notification(self, title, message, duration=2000):
         self.showMessage(title, message, QSystemTrayIcon.Information, duration)
     
     def quit_app(self):
         self.hide(); self.app.quit()
+
+    def change_environment(self):
+        env_dialog = EnvironmentDialog(None, db=self.api.db, title="Change Environment", label="Update location and equipment")
+        if env_dialog.exec_() == env_dialog.Accepted:
+            new_loc, new_eq = env_dialog.get_result()
+            if self.session.is_running:
+                reply = QMessageBox.question(None,
+                                             "Split Session?",
+                                             "Changing environment will end the current session and start a new one. Continue?",
+                                             QMessageBox.Yes | QMessageBox.No,
+                                             QMessageBox.No)
+                if reply != QMessageBox.Yes:
+                    return
+                # Finish current session with an auto note and current environment
+                old_id = self.session.id
+                # Close any active pause before ending
+                if self.session.pause_manager.get_active_pauses():
+                    try:
+                        self.session.resume()
+                    except Exception:
+                        pass
+                auto_note = f"continuing session {old_id}; environment changed"
+                # End and persist old session with old env
+                try:
+                    self.session.end()
+                except Exception:
+                    pass
+                self.api.db.save_session(self.session, auto_note, location=self.current_location, equipment=self.current_equipment)
+                # Start a fresh session with new environment
+                self.current_location = new_loc
+                self.current_equipment = new_eq
+                self.session = StudySession(); self.session.status_changed.connect(self.on_session_status_changed)
+                self.session.start()
+                self.api.db.log_event(self.session.id, 'start', {})
+                self.show_notification("🌐 Environment Changed", f"New session started @ {new_loc or '—'}", 3000)
+            else:
+                # No active session: just update environment context
+                self.current_location = new_loc
+                self.current_equipment = new_eq
+                self.show_notification("🌐 Environment Updated", f"Location: {new_loc or '—'}", 2000)
+
+    def open_settings(self):
+        dlg = SettingsDialog(None, db=self.api.db, title="Settings")
+        if dlg.exec_() == dlg.Accepted:
+            self.show_notification("⚙️  Settings Saved", "Catalogs updated", 2000)

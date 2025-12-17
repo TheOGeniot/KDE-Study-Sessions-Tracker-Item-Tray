@@ -89,7 +89,9 @@ class SessionAPIManager(QObject):
                 'total_duration_seconds': s.get('total_duration_seconds') or 0,
                 'pause_count': s.get('pause_count') or 0,
                 'total_pause_duration_seconds': s.get('total_pause_duration_seconds') or 0,
-                'notes': s.get('notes') or ''
+                'notes': s.get('notes') or '',
+                'location': s.get('location') or '',
+                'equipment': s.get('equipment') or ''
             }
             pauses = self.db.fetch_unsynced_pauses_for_session(s['session_id'])
             pause_payloads = [

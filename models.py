@@ -110,7 +110,17 @@ class StudySession(QObject):
     def end(self) -> dict:
         if not self.is_running:
             return {}
-        self.end_time = datetime.now()
+        
+        # If there's an active pause when ending, use the pause start time as end time
+        # and forget the pause (don't count it)
+        active_pause = self.pause_manager.active_pauses.get(self.id)
+        if active_pause:
+            self.end_time = active_pause.started_at
+            # Remove the active pause without completing it
+            del self.pause_manager.active_pauses[self.id]
+        else:
+            self.end_time = datetime.now()
+        
         total_duration = int((self.end_time - self.start_time).total_seconds())
         total_pause = self.pause_manager.get_session_total_pause_time(self.id)
         active_time = total_duration - total_pause
