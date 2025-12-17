@@ -1,11 +1,10 @@
 # Study Session Manager (PyQt5 Tray)
 
 > **Purpose**: Personal study data collection for AI-driven productivity optimization  
-> **Status**: Prototype — Functional for data collection, not production-ready  
-> **Development**: This project is entirely vibecoded  
-> A KDE-friendly system tray app to track study sessions locally and export data to N8N for processing. Built to gather rich session metadata (pauses, reasons, timestamps, notes) as training data for a future personal AI that maximizes productivity and performance.
+> **Status**: Functional prototype for local data collection  
+> **Platform**: KDE/Plasma system tray app (Linux)
 
-Collect study session data with pause tracking, mood logging, focus areas, and environment context (location + equipment). All data stored locally in CSV only, with manual sync to N8N webhooks for ingestion into your ML pipeline.
+A lightweight, KDE-friendly system tray application for tracking study sessions with comprehensive session metadata. Collect session data locally (pauses, reasons, timestamps, notes, environment context), then manually sync to N8N webhooks for processing into your ML pipeline.
 
 ## Project Structure
 
@@ -16,150 +15,212 @@ Collect study session data with pause tracking, mood logging, focus areas, and e
 - `api.py`: Optional N8N integration (async HTTP with local fallback).
 - `dialogs.py`: Polished input/select dialogs used by tray actions.
 
+## Quick Start
+
+1. **Install dependencies:**
+   ```bash
+   pip3 install --user -r requirements.txt
+   ```
+
+2. **Run the app:**
+   ```bash
+   python3 ./study_session_tray_standalone.py
+   ```
+
+3. **Access your data:**
+   ```bash
+   cd ~/.local/share/study-session/
+   cat sessions.csv | column -t -s,
+   ```
+
+The app minimizes to system tray. Right-click the icon to start tracking. Your data is automatically saved to `~/.local/share/study-session/`.
+
 ## Setup
 
-Requirements:
+**Requirements:**
 - Python 3.10+
-- KDE/Plasma or a system tray-capable desktop (X11/Wayland)
+- KDE/Plasma desktop or system tray-capable environment (X11/Wayland)
 
-Install dependencies (no virtualenv by default):
-
-```bash
-pip3 install --user -r requirements.txt
-```
-
-Quick setup (defaults to no venv):
+**Automated setup with script:**
 
 ```bash
 chmod +x ./setup.sh
 ./setup.sh --run
 ```
 
-Optional: set N8N base URL via `.env` in the project root:
+**Optional: Configure N8N integration**
+
+Create `.env` in the project root to enable webhook sync:
 
 ```env
 N8N_BASE_URL=https://your-n8n-host.example.com
-# Optional endpoint paths (relative or absolute). If relative, they are
-# appended to N8N_BASE_URL. Absolute URLs take precedence as-is.
 N8N_SESSION_LOG_ENDPOINT=session-log
 N8N_SESSION_PAUSES_ENDPOINT=session-pauses
 ```
 
-## Run
-
-Run the tray app:
-
-```bash
-python3 "./study_session_tray_standalone.py"
-```
-
-You should see a tray icon; right-click (and left-click) opens the menu.
+Endpoint paths can be relative (appended to base URL) or absolute URLs.
 
 ## Features
 
-**Data Collection:**
-- Start session: begins tracking focus time
-- Pause session: capture pause reason (e.g., "distraction", "bio break")
-- Continue session: resume from pause
-- End session: log session summary (active time, pause count, total pause duration, optional notes)
-- Log thoughts, mood (5-point scale), and focus area during the session
-- View summary stats computed from local CSV data
+### Session Management
+- **Start Session**: Begin tracking with one click
+- **Pause/Continue**: Track focus interruptions with optional reason notes
+- **End Session**: Conclude with optional session summary
+- **Profile-Based Context**: Save location and equipment combinations for automatic session enrichment
 
-**Storage & Export:**
-- All data stays local by default (CSV only)
-- Manual sync to N8N via "🔄 Sync Now" button for centralized processing
-- Rich metadata: timestamps, durations, pause reasons, mood, focus area, notes, location, equipment
+### Environment Profiles
+- **Create profiles** with location and equipment combinations
+- **Select profiles** before or during sessions
+- **Manage catalogs** of locations and equipment
+- **Session context** is automatically captured with each session record
 
-## Data Location
+### Data Collection
+- **Active time tracking**: Total session duration minus pause time
+- **Pause metadata**: Reason, timestamp, duration for each pause
+- **Session notes**: Optional summary captured at session end
+- **Environment context**: Location and equipment automatically included in exported data
 
-All data is stored locally in `~/.local/share/study-session/`:
+### Manual Sync to N8N
+- **Click "Sync Now"**: Manually trigger data export to N8N webhooks
+- **Robust delivery**: All endpoints attempted; failures do not prevent other sends
+- **Selective deletion**: Data deleted from local CSV only after successful upload
+- **Offline resilient**: Failed syncs keep data locally for retry on next "Sync Now"
 
-**To access your data:**
+## 📊 Your Data
+
+**Location:** `~/.local/share/study-session/`
+
+### Quick Access
+
 ```bash
-# View all your data files
+# Navigate to your data
 cd ~/.local/share/study-session/
+
+# View all your files
 ls -lh
 
-# Quick peek at your sessions
+# See all sessions (formatted table)
 cat sessions.csv | column -t -s,
 
-# View logs
-ls -lh logs/
-tail -f logs/session_manager_$(date +%Y%m%d).log
+# Count total sessions
+wc -l sessions.csv
+
+# View today's log
+tail -f logs/session_manager_*.log
+
+# Export for backup
+cp -r ~/.local/share/study-session/ ~/study-data-backup
 ```
 
-**Files stored:**
-- **sessions.csv**: One row per ended session
-  - Columns: `session_id`, `started_at`, `ended_at`, `total_duration_seconds`, `active_time_seconds`, `pause_count`, `total_pause_duration_seconds`, `notes`, `location`, `equipment`
-- **pauses.csv**: One row per pause within a session
-  - Columns: `id`, `session_id`, `reason`, `started_at`, `ended_at`, `duration_seconds`
-- **location_catalog.csv**: Preset and user-added locations (defaults: home, class, transports)
-- **equipment_catalog.csv**: User-added equipment inventory (starts empty)
-- **profiles.csv**: Saved environment profiles (`name, location, equipment`)
-- **logs/**: Daily log files (`session_manager_YYYYMMDD.log`) with detailed operation traces
+### Data Files
 
-Simple, portable, and directly feedable into your ML pipeline.
+| File | Purpose |
+|------|---------|
+| `sessions.csv` | All completed sessions with metadata |
+| `pauses.csv` | Detailed pause records per session |
+| `location_catalog.csv` | Available study locations |
+| `equipment_catalog.csv` | Available equipment types |
+| `profiles.csv` | Saved environment profiles |
+| `settings.csv` | App preferences (last profile used, etc.) |
+| `logs/` | Daily operation logs for debugging |
 
-## N8N Manual Sync (via "Sync Now" button)
+### Session Record Structure
 
-**Sync is triggered manually by clicking "🔄 Sync Now" in the tray menu, not automatically.**
+Each row in `sessions.csv` contains:
+- `session_id`: Unique session identifier (timestamp)
+- `started_at`, `ended_at`: ISO-8601 timestamps
+- `total_duration_seconds`: Total time (including pauses)
+- `active_time_seconds`: Time spent actually studying
+- `pause_count`: Number of interruptions
+- `total_pause_duration_seconds`: Total break time
+- `notes`: Your session summary (if provided)
+- `location`: Where you studied
+- `equipment`: What you used
 
-Use this to push collected session data to N8N for processing, storage, or ML training pipelines.
+### Pause Record Structure
 
-- For each unsynced session in local CSVs:
-  - `POST /session-log`: one call per session (final summary with timestamps, durations, notes)
-  - For each pause in that session:
-    - `POST /session-pauses`: one call per pause (reason, started_at, ended_at, duration)
-  - Environment context included in session-log: `location`, `equipment`
-- Timestamp format: ISO-8601 with seconds zeroed (e.g. `2025-12-16T11:26:00`) for cleaner data
-- **Robust error handling**: All endpoints are attempted; failures do not stop the sync
-- **Deletion policy**:
-  - Pauses: deleted from DB only if they posted successfully (2XX status)
-  - Sessions: deleted from DB only if the session posted AND all its pauses posted
-  - Failed/4XX entries remain in the DB for retry on next "Sync Now"
-- Console logging: Full trace of DB reads, payload construction, sending, and deletions for debugging
-- If `N8N_BASE_URL` is unset, sync button is available but will warn that endpoints are not configured
+Each row in `pauses.csv` contains:
+- `id`: Unique pause identifier
+- `session_id`: Associated session
+- `reason`: Why you paused (if provided)
+- `started_at`, `ended_at`: When the pause occurred
+- `duration_seconds`: How long the pause lasted
 
-## Known Limitations & TODO
+## N8N Integration
 
-**Current Limitations (acceptable for data collection phase):**
-- No authentication: N8N webhooks are called without auth headers or tokens
-- No request signing: Payloads are not signed or verified
-- No user management: All sessions logged as `tray_standalone` user (local collection only)
-- No rate limiting: Sync can hammer the N8N endpoint if many sessions exist
-- No retry/backoff: Failed requests remain locally but are not automatically retried
-- No offline queue: If N8N is down, data stays local; manual sync will retry all next time
-- Desktop integration: Only tested on KDE/Plasma; may need adjustments for GNOME, etc.
-- No keyboard shortcuts: No global hotkeys for session control
+**Manual sync via "Sync Now" button** — triggered from the tray menu when session is not running.
 
-**Future Enhancements (as AI training progresses):**
-- Add Bearer token or API key authentication to `.env` and `_post_json()`
-- Request signing for data integrity verification
-- Automatic daily/weekly sync scheduling
-- Web dashboard to visualize collected data and trends
-- Integration with calendar/focus time blocking
-- Global hotkeys for quick session control
-- Support for multiple study contexts or projects
-- Mood-to-performance correlation analysis
-- Export to CSV/JSON for external analysis
+### Payload Format
 
-## Contributing / Extending
+For each unsynced session:
+- `POST` to `N8N_SESSION_LOG_ENDPOINT` with session summary
+- `POST` to `N8N_SESSION_PAUSES_ENDPOINT` for each pause (one request per pause)
 
-- Keep modules small and focused:
-  - UI logic in `tray.py`
-  - Domain in `models.py`
-  - Persistence in `db.py`
-  - Integrations in `api.py`
-- Prefer non-blocking operations; use `SessionAPIManager.run_async(...)` for async requests.
-- For icons, use theme-aware icons via `QIcon.fromTheme("clock")` with fallbacks.
-- **To add authentication**: Update `_post_json()` in `api.py` to include auth headers or Bearer tokens from `.env`
-- Consider adding `requests` library for simpler HTTP handling if complexity grows.
+**Session payload example:**
+```json
+{
+  "session_id": "20251217_143000",
+  "started_at": "2025-12-17T14:30:00",
+  "ended_at": "2025-12-17T15:15:00",
+  "total_duration_seconds": 2700,
+  "pause_count": 2,
+  "total_pause_duration_seconds": 300,
+  "notes": "Good focus session",
+  "location": "home",
+  "equipment": "laptop"
+}
+```
 
-## Troubleshooting
+**Pause payload example:**
+```json
+{
+  "id": "abc123de",
+  "session_id": "20251217_143000",
+  "reason": "coffee break",
+  "started_at": "2025-12-17T14:50:00",
+  "ended_at": "2025-12-17T14:55:00",
+  "duration_seconds": 300
+}
+```
 
-- Tray not visible: ensure your desktop environment shows system tray icons; check hidden icons.
-- Icon missing: provide a valid fallback icon file or change the theme icon name.
-- Menu not opening: KDE requires `setContextMenu(self.menu)`; this is set in `tray.py`.
-- Python warnings:
-  - Async loop: uses `asyncio.get_running_loop()` to avoid deprecation.
-  - CSV I/O: files are rewritten on deletions; ensure disk has space.
+### Sync Behavior
+
+- **All attempts made**: If session-log fails, pauses are still sent
+- **Selective deletion**: Only successful (2XX) uploads are deleted from local CSV
+- **Failed data preserved**: Failed syncs keep data locally for retry on next "Sync Now"
+- **Logging**: Full trace in `~/.local/share/study-session/logs/`
+- **No auth**: Webhooks currently called without authentication (see TODO)
+
+## Known Limitations
+
+- **No authentication**: N8N webhooks called without auth headers (see Contributing)
+- **No rate limiting**: Sync can hammer endpoints if many sessions exist locally
+- **No automatic retry**: Failed requests stay local; manual "Sync Now" retries all
+- **No offline queue**: If N8N is down, data stays local until next manual sync
+- **No keyboard shortcuts**: No global hotkeys for session control
+- **Desktop-specific**: Tested on KDE/Plasma; may need adjustments for GNOME/other DEs
+- **Single instance only**: Enforced via `/tmp/study_session_tray.lock`
+
+## Contributing
+
+### Code Structure
+- `study_session_tray_standalone.py`: App entrypoint, env setup, single-instance lock
+- `tray.py`: System tray UI, menu actions, session lifecycle
+- `models.py`: `StudySession`, `PauseManager`, `Pause` domain classes
+- `db.py`: CSV persistence, catalog/profile management, settings
+- `api.py`: N8N webhook integration, async HTTP, sync orchestration
+- `dialogs.py`: Input dialogs, profile selection, settings UI
+- `logger.py`: Centralized logging to file and console
+- `utils.py`: Helper functions (connectivity checks)
+
+### Adding Features
+- **Authentication**: Update `_post_json()` in `api.py` to include Bearer token from `.env`
+- **Keyboard shortcuts**: Use `QShortcut` or `QApplication.instance().installEventFilter()`
+- **Auto-sync scheduling**: Use `QTimer` in `tray.py` to periodically call `sync_unsynced()`
+- **Icons**: Use `QIcon.fromTheme("name")` with fallbacks; avoid hardcoded colors
+- **Logging**: Use `logger` from `setup_logger()` for consistency
+
+### Testing
+- Run without tray: `N8N_BASE_URL=` python3 study_session_tray_standalone.py
+- Check data: `cat ~/.local/share/study-session/sessions.csv`
+- Watch logs: `tail -f ~/.local/share/study-session/logs/session_manager_*.log`
